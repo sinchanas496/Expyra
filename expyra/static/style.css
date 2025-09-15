@@ -1,0 +1,7 @@
+/* security / neon theme overrides */
+body { background: linear-gradient(120deg,#041024 0%, #08182a 100%); color: #e6f7ef; }
+.card { border-radius: 12px; }
+.card.bg-black { background: rgba(6,10,12,0.88); border-width: 1px; border-color: rgba(16,230,140,0.15); }
+.text-success { color: #00e07a !important; }
+.btn-success { background: linear-gradient(90deg,#00e07a,#00c86b); border: none; }
+.form-control.bg-dark { border: 1px solid rgba(255,255,255,0.06); }

@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container text-center mt-5">
+    <h2 class="text-danger"><i class="bi bi-exclamation-triangle"></i> File Not Found</h2>
+    <p class="text-light">The file you are looking for does not exist or may have been removed.</p>
+    <a href="{{ url_for('home') }}" class="btn btn-outline-light mt-3">⬅ Go Home</a>
+</div>
+{% endblock %}

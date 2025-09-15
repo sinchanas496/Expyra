@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Expyra — File Uploaded</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body {
+      background: linear-gradient(to right, #232526, #414345);
+      color: white;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .card {
+      background: rgba(0,0,0,0.85);
+      border-radius: 15px;
+      padding: 25px;
+      width: 500px;
+      max-width: 95%;
+    }
+    .input-group input {
+      background: #1c1c1c;
+      color: white;
+      border: none;
+    }
+    .btn-copy {
+      background: #00ff99;
+      border: none;
+      color: black;
+      font-weight: bold;
+    }
+    .btn-copy:hover {
+      background: #00cc77;
+    }
+  </style>
+</head>
+<body>
+  <div class="card text-center shadow-lg">
+    <h3 class="text-success mb-3">✅ File Uploaded Successfully!</h3>
+
+    <!-- Download Link -->
+    <div class="input-group mb-3">
+      <input type="text" class="form-control text-center" value="{{ url }}" id="downloadLink" readonly>
+      <button class="btn btn-copy" onclick="copyLink()">📋 Copy</button>
+    </div>
+
+    <!-- Download Button -->
+    <a href="{{ url }}" class="btn btn-success w-100 mb-3">⬇ Download Now</a>
+
+    <!-- Expiry & Password Info -->
+    <p>
+      ⏳ <strong>Expires in:</strong> {{ expiry }} <br>
+      🔒 <strong>Password Protected:</strong> {{ "Yes" if protected else "No" }}
+    </p>
+
+    <!-- Upload Again -->
+    <a href="{{ url_for('upload_page') }}" class="btn btn-outline-light w-100 mt-3">
+      ⬆ Upload Another File
+    </a>
+    <a href="{{ url_for('home') }}" class="btn btn-outline-success w-100 mt-3">
+      🏠 Go to Home
+    </a>
+  </div>
+
+  <script>
+    function copyLink() {
+      const copyText = document.getElementById("downloadLink");
+      copyText.select();
+      copyText.setSelectionRange(0, 99999); // mobile
+      navigator.clipboard.writeText(copyText.value).then(() => {
+        alert("✅ Link copied!");
+      }).catch(err => {
+        alert("❌ Failed to copy: " + err);
+      });
+    }
+  </script>
+</body>
+</html>
