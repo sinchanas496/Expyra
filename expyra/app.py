@@ -7,8 +7,11 @@ from pymongo import MongoClient
 from datetime import datetime
 
 # -------------------- DATABASE --------------------
-MONGO_URI = "mongodb+srv://expyra_user:%40Sinchana14@cluster0.fx8izpc.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
+import os
+
+MONGO_URI = os.getenv("MONGO_URI")
 client = MongoClient(MONGO_URI)
+
 db = client["expyra_db"]
 
 users_col = db["users"]
