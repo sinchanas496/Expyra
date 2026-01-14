@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Expyra — Audit Logs</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body {
+      background: linear-gradient(to right, #0f2027, #203a43, #2c5364);
+      color: white;
+      min-height: 100vh;
+    }
+    .container {
+      margin-top: 60px;
+    }
+    .card {
+      background: rgba(0,0,0,0.85);
+      border-radius: 15px;
+      padding: 20px;
+    }
+    th, td {
+      color: white;
+      vertical-align: middle !important;
+    }
+  </style>
+</head>
+<body>
+
+<nav class="navbar navbar-dark bg-dark shadow">
+  <div class="container-fluid">
+    <a class="navbar-brand fw-bold" href="{{ url_for('dashboard') }}">⚡ Expyra</a>
+    <a href="{{ url_for('dashboard') }}" class="btn btn-outline-light btn-sm">⬅ Back</a>
+  </div>
+</nav>
+
+<div class="container">
+  <div class="card shadow-lg">
+    <h2 class="text-center text-info">📜 Audit Logs</h2>
+    <p class="text-center text-light">
+      Download access history (read-only)
+    </p>
+
+    {% if logs %}
+    <div class="table-responsive">
+      <table class="table table-dark table-striped text-center">
+        <thead>
+          <tr>
+            <th>📁 File</th>
+            <th>👤 Downloaded By</th>
+            <th>🌍 IP Address</th>
+            <th>🕒 Timestamp (UTC)</th>
+          </tr>
+        </thead>
+        <tbody>
+
+          {% for log in logs %}
+          <tr>
+            <td>
+              {% if log.filename is defined and log.filename %}
+                {{ log.filename.split("_", 1)[1] if "_" in log.filename else log.filename }}
+              {% else %}
+                Unknown
+              {% endif %}
+            </td>
+
+            <td>
+              {{ log.downloaded_by if log.downloaded_by is defined else "Unknown" }}
+            </td>
+
+            <td>
+              {{ log.ip_address if log.ip_address is defined else "N/A" }}
+            </td>
+
+            <td>
+              {{ log.timestamp.strftime('%Y-%m-%d %H:%M:%S') if log.timestamp else "N/A" }}
+            </td>
+          </tr>
+          {% endfor %}
+
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+      <p class="text-center">No audit logs available.</p>
+    {% endif %}
+  </div>
+</div>
+
+</body>
+</html>

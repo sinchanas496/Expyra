@@ -9,19 +9,21 @@ from datetime import datetime
 # -------------------- DATABASE --------------------
 MONGO_URI = "mongodb+srv://expyra_user:%40Sinchana14@cluster0.fx8izpc.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
 client = MongoClient(MONGO_URI)
-db = client["expyra_db"]     # database name
-users_col = db["users"]      # collection for users
-files_col = db["files"]      # collection for uploaded files
+db = client["expyra_db"]
+
+users_col = db["users"]
+files_col = db["files"]
+audit_col = db["audit_logs"]
 
 print("MongoDB connected:", db.list_collection_names())
 
 # -------------------- APP CONFIG --------------------
 app = Flask(__name__)
-app.secret_key = "supersecretkey"  # required for sessions
+app.secret_key = "supersecretkey"
 
-UPLOAD_FOLDER = 'uploads'
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024   # ✅ 5 MB file size limit
+UPLOAD_FOLDER = "uploads"
+app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
+app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024  # 5MB
 
 # -------------------- LOGIN MANAGER --------------------
 login_manager = LoginManager()
@@ -36,15 +38,13 @@ class User(UserMixin):
 @login_manager.user_loader
 def load_user(username):
     user = users_col.find_one({"username": username})
-    if user:
-        return User(username)
-    return None
+    return User(username) if user else None
 
 # -------------------- HELPERS --------------------
-ALLOWED_EXTENSIONS = {'txt', 'pdf', 'png', 'jpg', 'jpeg', 'gif'}
+ALLOWED_EXTENSIONS = {"txt", "pdf", "png", "jpg", "jpeg", "gif"}
 
 def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
 
 def format_time(seconds):
     if seconds <= 0:
@@ -53,198 +53,201 @@ def format_time(seconds):
         return f"{seconds // 60} min"
     elif seconds < 86400:
         return f"{seconds // 3600} hr"
-    else:
-        return f"{seconds // 86400} days"
+    return f"{seconds // 86400} days"
+
+def log_action(action, file_name, file_id=None):
+    audit_col.insert_one({
+        "action": action,
+        "file_name": file_name,
+        "file_id": file_id,
+        "user": current_user.id if current_user.is_authenticated else "Guest",
+        "ip": request.remote_addr,
+        "timestamp": datetime.utcnow()
+    })
 
 # -------------------- ROUTES --------------------
-@app.route('/')
-def home():
-    return render_template('home.html')
+@app.route("/")
+def welcome():
+    return render_template("welcome.html")
 
-# ✅ Signup
-@app.route('/signup', methods=['GET', 'POST'])
+@app.route("/home")
+@login_required
+def home():
+    return render_template("home.html")
+
+# -------------------- AUTH --------------------
+@app.route("/signup", methods=["GET", "POST"])
 def signup():
     if request.method == "POST":
-        username = request.form['username']
-        password = request.form['password']
-
-        if users_col.find_one({"username": username}):
-            flash("User already exists!", "danger")
+        if users_col.find_one({"username": request.form["username"]}):
+            flash("Username already exists!", "danger")
             return redirect(url_for("signup"))
 
-        hashed_pw = generate_password_hash(password)
-        users_col.insert_one({"username": username, "password": hashed_pw})
-        flash("Signup successful! Please login.", "success")
+        users_col.insert_one({
+            "username": request.form["username"],
+            "password": generate_password_hash(request.form["password"]),
+            "email": request.form["email"].strip().lower()
+        })
+
+        flash("Signup successful!", "success")
         return redirect(url_for("login"))
 
     return render_template("signup.html")
 
-# ✅ Login
-@app.route('/login', methods=['GET', 'POST'])
+@app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        username = request.form['username']
-        password = request.form['password']
+        user = users_col.find_one({
+            "$or": [
+                {"username": request.form["username"]},
+                {"email": request.form["username"]}
+            ]
+        })
 
-        user = users_col.find_one({"username": username})
-        if user and check_password_hash(user["password"], password):
-            login_user(User(username))
-            flash("Login successful!", "success")
+        if user and check_password_hash(user["password"], request.form["password"]):
+            login_user(User(user["username"]))
             return redirect(url_for("home"))
-        else:
-            flash("Invalid credentials!", "danger")
+
+        flash("Invalid credentials!", "danger")
 
     return render_template("login.html")
 
-# ✅ Logout
-@app.route('/logout')
+@app.route("/logout")
 @login_required
 def logout():
     logout_user()
-    flash("Logged out successfully!", "info")
     return redirect(url_for("home"))
 
-@app.route('/dashboard')
+# -------------------- DASHBOARD --------------------
+@app.route("/dashboard")
 @login_required
 def dashboard():
     now = time.time()
-    user_files = files_col.find({"owner": current_user.id})
+    files = []
 
-    files_list = []
-    for file in user_files:
-        status = "Expired" if now > file["expiry"] else "Active"
-        files_list.append({
-            "id": str(file["_id"]),
-            "file_id": file["file_id"],
-            "filename": file["filename"].split("_", 1)[1],
-            "expiry_readable": format_time(int(file["expiry"] - now)),
+    for f in files_col.find({"owner": current_user.id}):
+        status = "Revoked" if f.get("revoked") else ("Expired" if now > f["expiry"] else "Active")
+
+        files.append({
+            "file_id": f["file_id"],
+            "filename": f["filename"].split("_", 1)[1],
+            "expiry_readable": format_time(int(f["expiry"] - now)),
             "status": status,
-            "downloads": file.get("downloads", 0),
-            "protected": "Yes" if file.get("password") else "No",
-            "link": url_for("download_file", file_id=file["file_id"], _external=True),
-            "last_downloaded": file.get("last_downloaded")
+            "downloads": f.get("downloads", 0),
+            "protected": "Yes" if f.get("password") else "No",
+            "link": url_for("download_file", file_id=f["file_id"], _external=True),
+            "last_downloaded": f.get("last_downloaded")
         })
-    return render_template("dashboard.html", files=files_list)
 
+    return render_template("dashboard.html", files=files)
 
-# ✅ Upload
-@app.route('/upload', methods=['GET', 'POST'])
+# -------------------- AUDIT LOGS --------------------
+@app.route("/audit-logs")
+@login_required
+def audit_logs():
+    logs = audit_col.find().sort("timestamp", -1)
+    return render_template("audit_logs.html", logs=logs)
+
+# -------------------- UPLOAD --------------------
+@app.route("/upload", methods=["GET", "POST"])
 @login_required
 def upload_page():
-    if request.method == 'POST':
-        if 'file' not in request.files:
-            return "No file part"
-        file = request.files['file']
-        if file.filename == '':
-            return "No selected file"
-        if file and allowed_file(file.filename):
-            filename = secure_filename(file.filename)
-            file_id = str(uuid.uuid4())
-            filepath = os.path.join(app.config['UPLOAD_FOLDER'], file_id + "_" + filename)
-            file.save(filepath)
+    if request.method == "POST":
+        file = request.files.get("file")
+        if not file or not allowed_file(file.filename):
+            return "Invalid file"
 
-            expiry_seconds = int(request.form.get("expiry", "60"))
-            expiry_time = time.time() + expiry_seconds
+        filename = secure_filename(file.filename)
+        file_id = str(uuid.uuid4())
+        path = os.path.join(UPLOAD_FOLDER, f"{file_id}_{filename}")
+        file.save(path)
 
-            password = request.form.get("password")
-            password_hash = generate_password_hash(password) if password else None
+        expiry_seconds = int(request.form.get("expiry", 60))
+        password = request.form.get("password")
 
-            files_col.insert_one({
-                "owner": current_user.id,
-                "file_id": file_id,
-                "filename": file_id + "_" + filename,
-                "expiry": expiry_time,
-                "downloads": 0,
-                "password": password_hash,
-                "last_downloaded": None   # ✅ new field
-            })
+        files_col.insert_one({
+            "owner": current_user.id,
+            "file_id": file_id,
+            "filename": f"{file_id}_{filename}",
+            "expiry": time.time() + expiry_seconds,
+            "downloads": 0,
+            "password": generate_password_hash(password) if password else None,
+            "revoked": False,
+            "last_downloaded": None
+        })
 
-            download_url = url_for('download_file', file_id=file_id, _external=True)
-            return render_template("link.html",
-                                   url=download_url,
-                                   expiry=format_time(expiry_seconds),
-                                   protected=True if password else False)
-        return "File type not allowed"
+        log_action("UPLOAD", filename, file_id)
+
+        return render_template(
+            "link.html",
+            url=url_for("download_file", file_id=file_id, _external=True),
+            expiry=format_time(expiry_seconds),
+            protected=True if password else False
+        )
 
     return render_template("index.html")
 
-# ✅ Download Page
-@app.route('/download', methods=['GET', 'POST'])
-def download_page():
-    if request.method == 'POST':
-        file_input = request.form.get("file_id")
-        if "/" in file_input:
-            file_id = file_input.strip().split("/")[-1]
-        else:
-            file_id = file_input.strip()
-        return redirect(url_for('download_file', file_id=file_id))
-
-    return render_template('download.html')
-
-# ✅ File Download
-@app.route('/download/<file_id>', methods=['GET', 'POST'])
+# -------------------- DOWNLOAD --------------------
+@app.route("/download/<file_id>", methods=["GET", "POST"])
 def download_file(file_id):
-    file_info = files_col.find_one({"file_id": file_id})
-    if not file_info:
+    file = files_col.find_one({"file_id": file_id})
+    if not file:
         return render_template("notfound.html")
 
-    if time.time() > file_info["expiry"]:
-        try:
-            os.remove(os.path.join(app.config['UPLOAD_FOLDER'], file_info["filename"]))
-        except:
-            pass
-        files_col.delete_one({"_id": file_info["_id"]})
+    if file.get("revoked"):
+        return render_template("expired.html", message="Access revoked")
+
+    if time.time() > file["expiry"]:
         return render_template("expired.html")
 
-    if file_info["password"]:
-        if request.method == 'POST':
-            entered_password = request.form['password']
-            if check_password_hash(file_info["password"], entered_password):
-                files_col.update_one(
-                    {"_id": file_info["_id"]},
-                    {"$inc": {"downloads": 1}, "$set": {"last_downloaded": datetime.utcnow()}}
-                )
-                return send_from_directory(app.config['UPLOAD_FOLDER'],
-                                           file_info["filename"],
-                                           as_attachment=True)
-            else:
-                return render_template("password.html", error="Incorrect password")
-        return render_template("password.html")
+    if file["password"]:
+        if request.method == "POST" and check_password_hash(file["password"], request.form["password"]):
+            pass
+        else:
+            return render_template("password.html")
 
-    # no password
     files_col.update_one(
-        {"_id": file_info["_id"]},
+        {"_id": file["_id"]},
         {"$inc": {"downloads": 1}, "$set": {"last_downloaded": datetime.utcnow()}}
     )
-    return send_from_directory(app.config['UPLOAD_FOLDER'], file_info["filename"], as_attachment=True)
-# ✅ Delete File
-@app.route('/delete/<file_id>', methods=['POST'])
+
+    log_action("DOWNLOAD", file["filename"], file_id)
+
+    audit_col.insert_one({
+    "action": "DOWNLOAD",
+    "filename": file["filename"],   # stored with uuid_prefix
+    "downloaded_by": current_user.id if current_user.is_authenticated else "Guest",
+    "ip_address": request.remote_addr,
+    "timestamp": datetime.utcnow()
+})
+
+
+    return send_from_directory(UPLOAD_FOLDER, file["filename"], as_attachment=True)
+
+# -------------------- DELETE --------------------
+@app.route("/delete/<file_id>", methods=["POST"])
 @login_required
 def delete_file(file_id):
-    file_info = files_col.find_one({"file_id": file_id, "owner": current_user.id})
-    if not file_info:
-        flash("File not found or not authorized!", "danger")
-        return redirect(url_for("dashboard"))
+    file = files_col.find_one({"file_id": file_id, "owner": current_user.id})
+    if file:
+        log_action("DELETE", file["filename"], file_id)
+        files_col.delete_one({"_id": file["_id"]})
 
-    # remove file from local uploads folder
-    try:
-        os.remove(os.path.join(app.config['UPLOAD_FOLDER'], file_info["filename"]))
-    except:
-        pass
-
-    # remove from MongoDB
-    files_col.delete_one({"_id": file_info["_id"]})
-    flash("File deleted successfully!", "success")
     return redirect(url_for("dashboard"))
 
-# -------------------- ERROR HANDLER --------------------
-@app.errorhandler(413)
-def request_entity_too_large(error):
-    flash("File too large! Max size is 5 MB.", "danger")
-    return redirect(url_for("upload_page"))
+# -------------------- TOGGLE ACCESS --------------------
+@app.route("/toggle-access/<file_id>", methods=["POST"])
+@login_required
+def toggle_access(file_id):
+    file = files_col.find_one({"file_id": file_id, "owner": current_user.id})
+    if file:
+        new_status = not file.get("revoked", False)
+        files_col.update_one({"_id": file["_id"]}, {"$set": {"revoked": new_status}})
+        log_action("REVOKE" if new_status else "ENABLE", file["filename"], file_id)
+
+    return redirect(url_for("dashboard"))
 
 # -------------------- MAIN --------------------
-if __name__ == '__main__':
-    if not os.path.exists(UPLOAD_FOLDER):
-        os.makedirs(UPLOAD_FOLDER)
+if __name__ == "__main__":
+    os.makedirs(UPLOAD_FOLDER, exist_ok=True)
     app.run(debug=True)
